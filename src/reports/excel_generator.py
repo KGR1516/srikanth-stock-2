@@ -72,8 +72,8 @@ def generate_report(df: pd.DataFrame, out_dir: Path | None = None) -> Path:
 
     master_cols = [
         "true_rank", "symbol", "close", "breakout_level", "pct_above", "rsi",
-        "volume_x", "turnover_cr", "setup_type", "live_status",
-        "final_score", "action", "position_size",
+        "volume_x", "turnover_cr", "adx", "macd_hist", "follow_through",
+        "setup_type", "live_status", "final_score", "action", "position_size",
     ]
     master = df[[c for c in master_cols if c in df.columns]].copy()
 
@@ -90,8 +90,8 @@ def generate_report(df: pd.DataFrame, out_dir: Path | None = None) -> Path:
         })
     trades = pd.DataFrame(trade_rows)
 
-    comp_cols = ["true_rank", "symbol", "entry_checks", "rsi_health", "proximity",
-                 "liquidity", "live_score", "volume", "catalyst",
+    comp_cols = ["true_rank", "symbol", "entry_checks", "trend_alignment", "momentum",
+                 "rsi_health", "proximity", "liquidity", "live_score", "volume",
                  "penalty", "final_score"]
     breakdown = df[[c for c in comp_cols if c in df.columns]].copy()
 
