@@ -24,6 +24,11 @@ def run_scan(symbols: list[str] | None = None) -> "tuple":
     screened = breakout_engine.screen(detected)
     scored = true_quality.score(screened)
 
+    candidates = scored.head(settings.FUNDAMENTALS_TOP_N)["symbol"].tolist()
+    fundamentals = nse_fetcher.fetch_fundamentals(candidates)
+    if not fundamentals.empty:
+        scored = scored.merge(fundamentals, on="symbol", how="left")
+
     report_path = excel_generator.generate_report(scored)
     _print_summary(scored)
     return scored, report_path
