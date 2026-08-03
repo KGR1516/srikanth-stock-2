@@ -14,6 +14,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
 import pandas as pd
+import requests
+from io import StringIO
 
 from config import settings
 from src.utils.logger import log
@@ -59,9 +61,109 @@ def _index_universe() -> list[str] | None:
     return None
 
 
-def get_universe() -> list[str]:
-    return load_watchlist() or _index_universe() or _FALLBACK_UNIVERSE
+_NSE_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    ),
+    "Referer": "https://www.nseindia.com/",
+    "Accept": "text/csv,application/csv,*/*",
+}
 
+_NSE_EQUITY_LIST_URLS = [
+    "https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv",
+    "https://archives.nseindia.com/content/equities/EQUITY_L.csv",
+]
+
+
+def _full_nse_universe() -> list[str] | None:
+    """Pull the complete list of NSE-listed equities (EQ series) from NSE's
+    public archive CSV. This is the 'total NSE' universe rather than a
+    single index's constituents. Best-effort: returns None on any failure
+    so callers can fall back to a narrower, more reliable universe.
+    """
+    try:
+        session = requests.Session()
+        session.headers.update(_NSE_HEADERS)
+        session.get("https://www.nseindia.com/", timeout=settings.REQUEST_TIMEOUT)
+        for url in _NSE_EQUITY_LIST_URLS:
+            try:
+                resp = session.get(url, timeout=settings.REQUEST_TIMEOUT)
+                if resp.status_code == 200 and len(resp.content) > 5000:
+                    df = pd.read_csv(StringIO(resp.text))
+                    df.columns = [c.strip() for c in df.columns]
+                    if "SERIES" in df.columns:
+                        df = df[df["SERIES"].astype(str).str.strip() == "EQ"]
+                    syms = df["SYMBOL"].dropna().astype(str).str.strip().tolist()
+                    if syms:
+                        log.info(f"Fetched {len(syms)} EQ symbols from full NSE equity list ({url})")
+                        return syms
+            except Exception as e:  # noqa: BLE001
+                log.warning(f"Full NSE list fetch failed for {url}: {e}")
+    except Exception as e:  # noqa: BLE001
+        log.warning(f"Full NSE universe fetch failed ({e}); falling back")
+    return None
+
+
+def get_universe() -> list[str]:
+    watchlist = load_watchlist()
+    if watchlist:
+        return watchlist
+    if settings.UNIVERSE_MODE == "FULL_NSE":
+        full = _full_nse_universe()
+        if full:
+            return full
+    idx = _index_universe()
+    if idx:
+        return idx
+    log.warning("Falling back to the small hardcoded universe list")
+    return _FALLBACK_UNIVERSE
+
+
+_FUNDAMENTAL_FIELDS = {
+    "sector": "sector",
+    "industry": "industry",
+    "marketCap": "market_cap",
+    "trailingPE": "pe_ratio",
+    "returnOnEquity": "roe",
+    "debtToEquity": "debt_to_equity",
+    "earningsGrowth": "earnings_growth",
+    "profitMargins": "profit_margin",
+}
+
+
+def _fetch_fundamentals_one(symbol: str) -> dict:
+    """Best-effort fundamental snapshot for one symbol (sector, P/E, ROE, etc.)."""
+    import yfinance as yf
+
+    row = {"symbol": symbol}
+    try:
+        ticker = f"{symbol}{settings.YF_SUFFIX}"
+        info = yf.Ticker(ticker).get_info()
+        for src, dst in _FUNDAMENTAL_FIELDS.items():
+            row[dst] = info.get(src)
+    except Exception as e:  # noqa: BLE001
+        log.debug(f"{symbol}: fundamentals error {e}")
+    return row
+
+
+def fetch_fundamentals(symbols: list[str]) -> pd.DataFrame:
+    """Enrich a short candidate list with fundamental data.
+
+    Deliberately NOT run across the full universe (fundamentals lookups are
+    slow, one HTTP round-trip per symbol) — callers should pass only the
+    top-ranked technical candidates.
+    """
+    symbols = list(dict.fromkeys(symbols))  # de-dupe, keep order
+    if not symbols:
+        return pd.DataFrame(columns=["symbol"])
+    log.info(f"Fetching fundamentals for {len(symbols)} candidates")
+    rows: list[dict] = []
+    with ThreadPoolExecutor(max_workers=min(8, settings.MAX_WORKERS)) as pool:
+        futures = {pool.submit(_fetch_fundamentals_one, s): s for s in symbols}
+        for fut in as_completed(futures):
+            rows.append(fut.result())
+    return pd.DataFrame(rows)
 
 def _fetch_one(symbol: str) -> dict | None:
     """Fetch history for a single symbol and compute the per-stock row."""
