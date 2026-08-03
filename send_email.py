@@ -22,18 +22,51 @@ def find_latest_report(pattern):
     return Path(matches[-1]) if matches else None
 
 
+def _top_picks_text(attachment):
+    """Best-effort plain-text summary of the 'Top Picks' sheet for the email body."""
+    try:
+        import pandas as pd
+        df = pd.read_excel(attachment, sheet_name="Top Picks")
+    except Exception:
+        return ""
+    if df.empty:
+        return "No qualifying breakout candidates today (technical + fundamental filters)."
+    lines = ["Top Picks (technical + fundamental):", ""]
+    for _, r in df.head(10).iterrows():
+        rank = r.get("true_rank", "-")
+        lines.append(
+            f"{rank}. {r.get('symbol', '')} [{r.get('action', '')}] "
+            f"close={r.get('close', '-')} score={r.get('final_score', '-')} "
+            f"sector={r.get('sector', '-')} PE={r.get('pe_ratio', '-')} ROE={r.get('roe', '-')}"
+        )
+    return "\n".join(lines)
+
+
+def _session_label():
+    from datetime import datetime, timezone, timedelta
+    ist = datetime.now(timezone(timedelta(hours=5, minutes=30)))
+    if ist.hour < 9 or (ist.hour == 9 and ist.minute < 15):
+        return "Pre-Market"
+    if ist.hour < 15 or (ist.hour == 15 and ist.minute < 30):
+        return "Mid-Session"
+    return "Post-Close"
+
+
 def build_message(sender, recipient, attachment):
     msg = EmailMessage()
     status = "report attached" if attachment and attachment.exists() else "no report generated"
-    msg["Subject"] = f"Breakout Scanner - {status}"
+    session = _session_label()
+    msg["Subject"] = f"Breakout Scanner [{session}] - {status}"
     msg["From"] = sender
     msg["To"] = recipient
 
     if attachment and attachment.exists():
-        msg.set_content(
-            "Attached is today's breakout scan report.\n\n"
+        top_text = _top_picks_text(attachment)
+        body = ((top_text + "\n\n") if top_text else "") + (
+            "Full details in the attached Excel report.\n\n"
             "Educational tool only. Not investment advice."
         )
+        msg.set_content(body)
         msg.add_attachment(
             attachment.read_bytes(),
             maintype="application",
