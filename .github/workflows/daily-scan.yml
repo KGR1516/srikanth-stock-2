@@ -2,7 +2,9 @@ name: Daily Breakout Scanner
 
 on:
   schedule:
-    - cron: '0 3 * * *'  # 08:30 IST daily
+    - cron: '15 3 * * 1-5'   # 08:45 IST weekdays - Pre-Market
+    - cron: '30 5 * * 1-5'   # 11:00 IST weekdays - Mid-Session
+    - cron: '30 10 * * 1-5'  # 16:00 IST weekdays - Post-Close
   workflow_dispatch: {}
 
 jobs:
