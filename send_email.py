@@ -6,7 +6,7 @@ Reads credentials from environment variables (set as GitHub Actions secrets):
     RECIPIENT_EMAIL     - who receives the email (defaults to GMAIL_ADDRESS)
 
 Run:
-    python send_email.py --pattern "breakout-scanner/data/output/*.xlsx"
+    python send_email.py --pattern "data/output/*.xlsx"
 """
 
 import argparse
@@ -50,7 +50,7 @@ def build_message(sender, recipient, attachment):
 
 def main():
     parser = argparse.ArgumentParser(description="Email the breakout scan report")
-    parser.add_argument("--pattern", default="breakout-scanner/data/output/*.xlsx",
+    parser.add_argument("--pattern", default="data/output/*.xlsx",
                          help="glob pattern to locate the generated report")
     args = parser.parse_args()
 
