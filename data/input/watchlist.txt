@@ -1,0 +1,5 @@
+# Custom watchlist — one NSE symbol per line. Lines starting with # are ignored.
+# If this file has symbols, they override the index universe.
+# RELIANCE
+# TCS
+# IRCTC
