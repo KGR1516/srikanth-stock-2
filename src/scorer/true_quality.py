@@ -26,6 +26,25 @@ def _entry_checks(row: pd.Series) -> float:
     return passed / 4 * settings.WEIGHTS["entry_checks"]
 
 
+def _trend_alignment(row: pd.Series) -> float:
+    """Reward stocks trading above a rising 50/200-EMA structure."""
+    if row.get("trend_aligned"):
+        frac = 1.0
+    elif row["close"] > row.get("ema50", row["close"]):
+        frac = 0.4
+    else:
+        frac = 0.0
+    return frac * settings.WEIGHTS["trend_alignment"]
+
+
+def _momentum(row: pd.Series) -> float:
+    """Reward MACD bullish momentum confirmed by ADX trend strength."""
+    macd_ok = row.get("macd_hist", 0) > 0
+    adx_frac = _scale(row.get("adx", 0), settings.MIN_ADX, settings.MIN_ADX + 20)
+    frac = (0.5 if macd_ok else 0.0) + 0.5 * adx_frac
+    return frac * settings.WEIGHTS["momentum"]
+
+
 def _rsi_health(row: pd.Series) -> float:
     """Lower RSI = more room. Best around 50-60, worse as it climbs to 75."""
     rsi = row["rsi"]
@@ -57,25 +76,16 @@ def _volume(row: pd.Series) -> float:
     return frac * settings.WEIGHTS["volume"]
 
 
-def _catalyst(row: pd.Series) -> float:
-    """Placeholder: earnings/broker/sector catalyst flag.
-
-    Real feeds aren't wired in, so we award partial credit when a
-    `catalyst` boolean column is present and true.
-    """
-    flag = bool(row.get("catalyst", False))
-    return settings.WEIGHTS["catalyst"] if flag else 0.0
-
-
 def score_row(row: pd.Series) -> dict:
     components = {
         "entry_checks": round(_entry_checks(row), 1),
+        "trend_alignment": round(_trend_alignment(row), 1),
+        "momentum": round(_momentum(row), 1),
         "rsi_health": round(_rsi_health(row), 1),
         "proximity": round(_proximity(row), 1),
         "liquidity": round(_liquidity(row), 1),
         "live_score": round(_live(row), 1),
         "volume": round(_volume(row), 1),
-        "catalyst": round(_catalyst(row), 1),
     }
     raw = sum(components.values())
 
@@ -94,8 +104,8 @@ def score_row(row: pd.Series) -> dict:
 def score(df: pd.DataFrame) -> pd.DataFrame:
     """Add component columns, final_score, action, position_size, and rank."""
     empty_cols = [
-        "entry_checks", "rsi_health", "proximity", "liquidity",
-        "live_score", "volume", "catalyst", "penalty", "final_score",
+        "entry_checks", "trend_alignment", "momentum", "rsi_health", "proximity",
+        "liquidity", "live_score", "volume", "penalty", "final_score",
         "action", "position_size", "true_rank",
     ]
     if df.empty:
