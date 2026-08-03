@@ -81,6 +81,10 @@ def _fetch_one(symbol: str) -> dict | None:
         return None
 
     df = df.rename(columns=str.title)
+    df = df.dropna(subset=["Close", "Volume"])
+    if len(df) < 20:
+        log.debug(f"{symbol}: insufficient history after dropping NaN rows")
+        return None
     close = df["Close"]
     last = close.iloc[-1]
 
