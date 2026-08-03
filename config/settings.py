@@ -80,6 +80,9 @@ ACTION_BANDS = [
 NSE_BASE_URL = os.getenv("NSE_BASE_URL", "https://www.nseindia.com")
 NIFTY_INDEX = os.getenv("NIFTY_INDEX", "NIFTY 500")
 YF_SUFFIX = os.getenv("YF_SUFFIX", ".NS")
+UNIVERSE_MODE = os.getenv("UNIVERSE_MODE", "FULL_NSE")  # FULL_NSE | NIFTY_INDEX | WATCHLIST
+FUNDAMENTALS_TOP_N = _i("FUNDAMENTALS_TOP_N", 60)
+TOP_PICKS_N = _i("TOP_PICKS_N", 10)
 
 WATCHLIST_FILE = BASE_DIR / "data" / "input" / "watchlist.txt"
 OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", BASE_DIR / "data" / "output"))
@@ -87,7 +90,7 @@ LOG_DIR = BASE_DIR / "logs"
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
 REQUEST_TIMEOUT = _i("REQUEST_TIMEOUT", 15)
-MAX_WORKERS = _i("MAX_WORKERS", 8)
+MAX_WORKERS = _i("MAX_WORKERS", 15)
 
 
 def action_for(score: float):
