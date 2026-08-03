@@ -1,0 +1,41 @@
+name: Daily Breakout Scanner
+
+on:
+  schedule:
+    - cron: '0 3 * * *'  # 08:30 IST daily
+  workflow_dispatch: {}
+
+jobs:
+  run-scanner:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Unzip scanner
+        run: unzip -q "breakout-scanner (3).zip"
+
+      - name: Install dependencies
+        run: pip install -r breakout-scanner/requirements.txt
+
+      - name: Run scanner
+        working-directory: breakout-scanner
+        run: python -m src.main
+
+      - name: Upload report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: breakout-report
+          path: breakout-scanner/data/output/*.xlsx
+
+      - name: Email results
+        env:
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
+        run: python send_email.py
