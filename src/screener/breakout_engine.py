@@ -89,7 +89,6 @@ def screen(df: pd.DataFrame) -> pd.DataFrame:
     """Keep only rows that clear the hard universe filters (price + liquidity)."""
     if df.empty:
         return df
-    log.info(df[["symbol", "close", "turnover_cr", "not_penny"]].to_string())
     kept = df[(df["not_penny"]) & (df["turnover_cr"] >= settings.MIN_TURNOVER_CR)]
     log.info(f"Screen kept {len(kept)}/{len(df)} rows")
     return kept.reset_index(drop=True)
