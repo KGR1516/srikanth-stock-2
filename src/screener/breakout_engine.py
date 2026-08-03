@@ -50,6 +50,15 @@ def _live_status(row: pd.Series) -> str:
     return "Held"
 
 
+def _follow_through(row: pd.Series) -> str:
+    """How much technical confirmation backs this breakout (trend + momentum)."""
+    if row["trend_aligned"] and row["momentum_confirmed"]:
+        return "Strong"
+    if row["trend_aligned"] or row["momentum_confirmed"]:
+        return "Partial"
+    return "Weak"
+
+
 def detect_breakouts(df: pd.DataFrame) -> pd.DataFrame:
     """Annotate the snapshot with breakout type, pct_above, and live status."""
     if df.empty:
@@ -67,6 +76,11 @@ def detect_breakouts(df: pd.DataFrame) -> pd.DataFrame:
     df["rsi_ok"] = df["rsi"] < settings.MAX_RSI
     df["liquid"] = df["turnover_cr"] >= settings.MIN_TURNOVER_CR
     df["not_penny"] = df["close"] >= settings.MIN_PRICE
+
+    # trend + momentum confirmation (best-indicator follow-through check)
+    df["trend_aligned"] = (df["close"] > df["ema50"]) & (df["ema50"] >= df["ema200"])
+    df["momentum_confirmed"] = (df["macd_hist"] > 0) & (df["adx"] >= settings.MIN_ADX)
+    df["follow_through"] = df.apply(_follow_through, axis=1)
 
     return df
 
