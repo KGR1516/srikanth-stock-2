@@ -91,6 +91,14 @@ def _fetch_one(symbol: str) -> dict | None:
     rsi_series = indicators.rsi(close, settings.RSI_PERIOD)
     vol_x = indicators.volume_multiple(df["Volume"], settings.VOLUME_AVG_WINDOW)
 
+    ema20 = indicators.ema(close, settings.EMA_FAST)
+    ema50 = indicators.ema(close, settings.EMA_MID)
+    ema200 = indicators.ema(close, settings.EMA_SLOW)
+    _, _, macd_hist = indicators.macd(
+        close, settings.MACD_FAST, settings.MACD_SLOW, settings.MACD_SIGNAL_PERIOD
+    )
+    adx14 = indicators.adx(df["High"], df["Low"], close, settings.ADX_PERIOD)
+
     # breakout level = highest close over the lookback window, excluding today
     lookback = df.iloc[-(settings.BREAKOUT_LOOKBACK + 1):-1]
     if lookback.empty:
@@ -108,6 +116,11 @@ def _fetch_one(symbol: str) -> dict | None:
         "volume_x": vol_x,
         "turnover_cr": round(turnover_cr, 1),
         "high_60d": round(float(lookback["High"].max()), 2),
+        "ema20": round(float(ema20.iloc[-1]), 2),
+        "ema50": round(float(ema50.iloc[-1]), 2),
+        "ema200": round(float(ema200.iloc[-1]), 2) if pd.notna(ema200.iloc[-1]) else round(float(ema50.iloc[-1]), 2),
+        "macd_hist": round(float(macd_hist.iloc[-1]), 3),
+        "adx": round(float(adx14.iloc[-1]), 1),
         "fetched_at": datetime.now().isoformat(timespec="seconds"),
     }
 
