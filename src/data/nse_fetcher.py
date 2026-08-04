@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
+from functools import lru_cache
 
 import pandas as pd
 import requests
@@ -165,6 +166,33 @@ def fetch_fundamentals(symbols: list[str]) -> pd.DataFrame:
             rows.append(fut.result())
     return pd.DataFrame(rows)
 
+@lru_cache(maxsize=1)
+def _nifty_lookback_return() -> float:
+    """% return of the Nifty 50 index over settings.RS_LOOKBACK trading days.
+
+    Cached for the life of the process — computed once per scan run.
+    """
+    import yfinance as yf
+
+    try:
+        idx_df = yf.Ticker("^NSEI").history(
+            period=f"{settings.HISTORY_DAYS}d", interval="1d", auto_adjust=False
+        )
+    except Exception as e:  # noqa: BLE001
+        log.debug(f"Nifty index history error {e}")
+        return 0.0
+
+    if idx_df is None or len(idx_df) < settings.RS_LOOKBACK + 1:
+        return 0.0
+
+    closes = idx_df["Close"]
+    lb = settings.RS_LOOKBACK
+    try:
+        return float((closes.iloc[-1] / closes.iloc[-(lb + 1)] - 1) * 100)
+    except (IndexError, ZeroDivisionError):
+        return 0.0
+
+
 def _fetch_one(symbol: str) -> dict | None:
     """Fetch history for a single symbol and compute the per-stock row."""
     import yfinance as yf
@@ -209,6 +237,15 @@ def _fetch_one(symbol: str) -> dict | None:
 
     turnover_cr = float(last * df["Volume"].iloc[-1]) / 1e7  # ₹ crore
 
+    rel_strength = None
+    lb = settings.RS_LOOKBACK
+    if len(close) > lb:
+        try:
+            stock_ret = float((close.iloc[-1] / close.iloc[-(lb + 1)] - 1) * 100)
+            rel_strength = round(stock_ret - _nifty_lookback_return(), 2)
+        except (IndexError, ZeroDivisionError):
+            rel_strength = None
+
     return {
         "symbol": symbol,
         "close": round(float(last), 2),
@@ -224,6 +261,7 @@ def _fetch_one(symbol: str) -> dict | None:
         "macd_hist": round(float(macd_hist.iloc[-1]), 3),
         "adx": round(float(adx14.iloc[-1]), 1),
         "fetched_at": datetime.now().isoformat(timespec="seconds"),
+        "rel_strength": rel_strength,
     }
 
 
