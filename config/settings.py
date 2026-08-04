@@ -46,6 +46,7 @@ MACD_SLOW = _i("MACD_SLOW", 26)
 MACD_SIGNAL_PERIOD = _i("MACD_SIGNAL_PERIOD", 9)
 ADX_PERIOD = _i("ADX_PERIOD", 14)
 MIN_ADX = _f("MIN_ADX", 20)
+RS_LOOKBACK = _i("RS_LOOKBACK", 20)  # trading days for return comparison vs Nifty
 
 # ---------------------------------------------------------------- Risk
 STOP_PCT = _f("STOP_PCT", 0.015)
@@ -55,13 +56,14 @@ R_R_T2 = _f("R_R_T2", 3.5)
 # ---------------------------------------------------------------- Scoring weights (sum = 100)
 WEIGHTS = {
     "entry_checks": 20,
-    "trend_alignment": 15,
+    "trend_alignment": 10,
     "momentum": 15,
     "rsi_health": 10,
-    "proximity": 15,
+    "proximity": 10,
     "liquidity": 10,
     "live_status": 10,
     "volume": 5,
+    "relative_strength": 10,
 }
 
 PENALTY_LOSS_MAKING = -8
@@ -83,6 +85,12 @@ YF_SUFFIX = os.getenv("YF_SUFFIX", ".NS")
 UNIVERSE_MODE = os.getenv("UNIVERSE_MODE", "FULL_NSE")  # FULL_NSE | NIFTY_INDEX | WATCHLIST
 FUNDAMENTALS_TOP_N = _i("FUNDAMENTALS_TOP_N", 60)
 TOP_PICKS_N = _i("TOP_PICKS_N", 10)
+
+# ---------------------------------------------------------------- Fundamental adjustment
+FUND_ROE_GOOD = _f("FUND_ROE_GOOD", 20)          # ROE% for full marks
+FUND_DEBT_EQUITY_GOOD = _f("FUND_DEBT_EQUITY_GOOD", 50)  # D/E for full marks (lower better)
+FUND_GROWTH_GOOD = _f("FUND_GROWTH_GOOD", 15)    # earnings growth % for full marks
+FUND_PE_CAUTION = _f("FUND_PE_CAUTION", 60)      # PE above this trims the bonus
 
 WATCHLIST_FILE = BASE_DIR / "data" / "input" / "watchlist.txt"
 OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", BASE_DIR / "data" / "output"))
