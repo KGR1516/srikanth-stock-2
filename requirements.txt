@@ -8,3 +8,7 @@ schedule>=1.2.0
 python-dotenv>=1.0.0
 loguru>=0.7.0
 click>=8.1.0
+
+# Technical-analysis engines (see src/utils/indicators.py for how they're wired in)
+TA-Lib>=0.7.1
+pandas-ta-classic>=0.6.52
