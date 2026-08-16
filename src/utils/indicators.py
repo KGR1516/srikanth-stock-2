@@ -3,8 +3,10 @@
 Primary engine: TA-Lib (github.com/TA-Lib/ta-lib-python) — the fast, C-backed
 reference implementation.
 Secondary engine: pandas-ta-classic (github.com/xgboosted/pandas-ta-classic) —
-a pure-Python/pandas implementation, used automatically if TA-Lib isn't
-installed (e.g. its C library isn't available on the host).
+a pure-Python/pandas implementation. Used as the primary implementation for
+indicators TA-Lib doesn't cover at all (vwap, supertrend), and as a fallback
+for the rest if TA-Lib isn't installed (e.g. its C library isn't available
+on the host).
 Fallback: the original hand-rolled pandas/numpy math that shipped with this
 repo, used only if neither library is importable, so a fresh checkout never
 breaks just because an optional native dependency is missing.
@@ -19,17 +21,25 @@ import pandas as pd
 
 from src.utils.logger import log
 
+# _talib and _pta are imported independently of each other -- some
+# indicators (vwap, supertrend) have no TA-Lib equivalent at all, so _pta
+# must be available even on a host where TA-Lib imports successfully.
 try:
     import talib as _talib
-    _ENGINE = "talib"
 except ImportError:  # pragma: no cover - depends on host having the C lib
     _talib = None
-    try:
-        import pandas_ta_classic as _pta
-        _ENGINE = "pandas_ta_classic"
-    except ImportError:
-        _pta = None
-        _ENGINE = "manual"
+
+try:
+    import pandas_ta_classic as _pta
+except ImportError:
+    _pta = None
+
+if _talib is not None:
+    _ENGINE = "talib"
+elif _pta is not None:
+    _ENGINE = "pandas_ta_classic"
+else:
+    _ENGINE = "manual"
 
 log.debug(f"indicators engine: {_ENGINE}")
 
