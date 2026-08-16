@@ -355,3 +355,70 @@ def supertrend(
         trend.iloc[i] = final_lower.iloc[i] if direction.iloc[i] == 1 else final_upper.iloc[i]
 
     return trend, direction
+
+
+# ------------------------------------------------------ All indicators (bulk)
+def compute_all_indicators(df: pd.DataFrame, exclude: list[str] | None = None):
+    """Compute every indicator pandas-ta-classic ships (224 category
+    indicators across Candles, Cycles, Math, Momentum, Overlap, Statistics,
+    Trend, Volatility and Volume -- which already includes all 62 native
+    candlestick patterns as part of the Candles category) and append them
+    all as extra columns.
+
+    Unlike the individual functions above, there is no manual/TA-Lib
+    fallback here -- replicating 224+ indicator formulas by hand isn't
+    practical. This requires pandas-ta-classic to be installed (see
+    requirements.txt); indicators that support it use TA-Lib automatically
+    for acceleration when TA-Lib is also installed, same as the rest of
+    this module.
+
+    Runs each indicator individually (rather than pandas-ta-classic's own
+    ``df.ta.strategy("all")``) so that a bug or edge case in any single
+    indicator only skips that one instead of aborting the whole batch --
+    skipped indicators are logged, not raised.
+
+    Args:
+        df: OHLCV DataFrame with lowercase columns: open, high, low, close,
+            volume.
+        exclude: extra indicator names to skip, in addition to the ones
+            pandas-ta-classic itself excludes by default because they need
+            inputs beyond a plain OHLCV frame (comparison/crossover
+            signals, custom-length "runs", volume profile, etc.).
+
+    Returns:
+        A new DataFrame (the input `df` is left untouched) with every
+        successfully computed indicator appended as extra columns.
+    """
+    if _pta is None:
+        raise RuntimeError(
+            "compute_all_indicators() requires pandas-ta-classic. "
+            "Install it with `pip install pandas-ta-classic` (see requirements.txt)."
+        )
+
+    # Same default exclusions pandas-ta-classic's own strategy("all") applies:
+    # these need extra non-OHLCV inputs and can't run standalone off a
+    # plain price/volume frame.
+    default_exclude = {
+        "above", "above_value", "below", "below_value", "cross", "cross_value",
+        "long_run", "short_run", "td_seq", "tsignals", "vp", "xsignals",
+    }
+    skip = default_exclude | set(exclude or [])
+
+    out = df.copy()
+    names = out.ta.indicators(as_list=True)
+    added, skipped = 0, []
+    for name in names:
+        if name in skip:
+            continue
+        try:
+            getattr(out.ta, name)(append=True)
+            added += 1
+        except Exception as exc:  # pandas-ta-classic isn't uniformly robust across all 200+ indicators
+            skipped.append(name)
+            log.debug(f"compute_all_indicators: skipped '{name}' ({exc})")
+
+    log.debug(
+        f"compute_all_indicators: {added} indicator(s) computed, "
+        f"{len(skipped)} skipped, {out.shape[1] - df.shape[1]} columns added"
+    )
+    return out
