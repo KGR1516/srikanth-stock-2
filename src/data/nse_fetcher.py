@@ -262,6 +262,21 @@ def _fetch_one(symbol: str) -> dict | None:
 
     turnover_cr = float(last * df["Volume"].iloc[-1]) / 1e7  # ₹ crore
 
+    # Full pandas-ta-classic catalogue (~370 columns) reduced to a directional
+    # consensus. This is the expensive step in the scan, so it is skipped for
+    # symbols that screen() would discard anyway -- the condition below is
+    # exactly its penny/liquidity filter, so nothing that survives the screen
+    # loses its confluence score.
+    # It is also never allowed to break a symbol: on failure the row still
+    # returns, with confluence fields None, and scoring falls back to neutral.
+    conf = {}
+    eligible = last >= settings.MIN_PRICE and turnover_cr >= settings.MIN_TURNOVER_CR
+    if settings.USE_ALL_INDICATORS and eligible:
+        try:
+            conf = indicators.confluence_signals(df)
+        except Exception as exc:
+            log.debug(f"{symbol}: confluence unavailable ({exc})")
+
     rel_strength = None
     lb = settings.RS_LOOKBACK
     if len(close) > lb:
@@ -290,6 +305,12 @@ def _fetch_one(symbol: str) -> dict | None:
         "stoch_k": stoch_k_val,
         "vwap_dist_pct": vwap_dist_pct,
         "supertrend_dir": supertrend_dir,
+        "confluence_score": conf.get("confluence_score"),
+        "conf_trend": conf.get("conf_trend"),
+        "conf_momentum": conf.get("conf_momentum"),
+        "conf_overlap": conf.get("conf_overlap"),
+        "conf_volume": conf.get("conf_volume"),
+        "indicators_computed": conf.get("indicators_computed"),
         "fetched_at": datetime.now().isoformat(timespec="seconds"),
         "rel_strength": rel_strength,
     }
