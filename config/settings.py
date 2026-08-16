@@ -48,6 +48,16 @@ ADX_PERIOD = _i("ADX_PERIOD", 14)
 MIN_ADX = _f("MIN_ADX", 20)
 RS_LOOKBACK = _i("RS_LOOKBACK", 20)  # trading days for return comparison vs Nifty
 
+# ---------------------------------------------------------------- Additional indicators
+# Informational-only columns (bb_percent, atr_pct, stoch_k, vwap_dist_pct,
+# supertrend_dir) computed in nse_fetcher — not wired into scoring/breakout
+# classification, so changing these doesn't affect action/score output.
+BBANDS_PERIOD = _i("BBANDS_PERIOD", 20)
+BBANDS_STD = _f("BBANDS_STD", 2.0)
+ATR_PERIOD = _i("ATR_PERIOD", 14)
+SUPERTREND_PERIOD = _i("SUPERTREND_PERIOD", 10)
+SUPERTREND_MULTIPLIER = _f("SUPERTREND_MULTIPLIER", 3.0)
+
 # ---------------------------------------------------------------- Risk
 STOP_PCT = _f("STOP_PCT", 0.015)
 R_R_T1 = _f("R_R_T1", 2.0)
