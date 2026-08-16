@@ -437,45 +437,72 @@ def compute_all_indicators(df: pd.DataFrame, exclude: list[str] | None = None):
 
 # ------------------------------------------------- Multi-indicator confluence
 # How each indicator family is read as bullish / bearish. Only indicators with
-# an unambiguous directional meaning vote. Magnitude-only ones (ADX strength,
-# choppiness, volatility width, cycle phase, statistics) are still computed and
-# available as columns -- they just don't cast a direction vote, because a wrong
-# vote is worse than no vote.
+# an unambiguous directional meaning vote; the rest are still computed and
+# available as columns, they just abstain -- a wrong vote is worse than no vote.
+
+# Magnitude, not direction: these must never vote. ADX/ADXR/DX say how strong a
+# trend is, not which way it points; CHOP and VHF measure choppiness; the CPR
+# level columns are support/resistance geometry; KVOs is a signal line.
+_VOTE_NEVER = (
+    "ADX", "DX_", "CHOP", "VHF", "PSARAF", "PSARR", "SAREXT", "PMAX", "QS_",
+    "LDECAY", "EDECAY", "MARKETFI", "PVOL", "PVR", "VOSC", "WAD", "KVOS",
+    "VFI", "CPR_TC", "CPR_BC", "CPR_R", "CPR_S", "CPR_WIDTH",
+)
 _VOTE_GT0 = (            # bullish when > 0
     "MACD", "MOM_", "ROC_", "TRIX", "PPO", "APO_", "AO_", "BOP", "CCI_",
     "CMO_", "BIAS_", "CFO_", "FISHERT", "KST", "PGO_", "RVGI", "SLOPE",
     "SMI_", "TSI_", "COPC", "DPO_", "CTI_", "CMF_", "EFI_", "KVO_", "ADOSC",
-    "EOM_", "EMV_", "TTM_TRND", "AROONOSC", "INC_", "AMATE_LR", "QQEL",
+    "EOM_", "EMV", "TTM_TRND", "AROONOSC", "INC_",
 )
 _VOTE_GT50 = (           # bullish when > 50 (0-100 scales on a bull/bear axis)
     "RSI_", "RSX_", "STOCHK", "STOCHD", "STOCHRSIK", "STOCHRSID", "MFI_",
     "INERTIA", "PSL_", "STC_", "UO_", "CRSI", "QQE_",
 )
-_VOTE_GT_NEG50 = ("WILLR",)                       # bullish when > -50
-_VOTE_BEARISH_GT0 = ("DEC_", "AMATE_SR", "QQES")  # bullish when <= 0
-_VOTE_RISING = ("OBV", "AD", "PVT", "PVI_", "NVI_", "AOBV")  # rising = accumulation
+_VOTE_GT_NEG50 = ("WILLR",)          # bullish when > -50
+_VOTE_BEARISH_GT0 = ("DEC_", "QQES") # bullish when <= 0
+# "Long run" / "short run" regime flags: 1 means that regime is active.
+_VOTE_LONG_RUN = ("AMATE_LR", "AOBV_LR", "QQEL")
+_VOTE_SHORT_RUN = ("AMATE_SR", "AOBV_SR")
+# Cumulative accumulation lines: rising over the last week is accumulation.
+# Matched on the exact column name or an explicit prefix -- a bare "AD" prefix
+# would also swallow ADX and ADXR, which must not vote at all.
+_VOTE_RISING_EXACT = {"AD", "OBV", "PVT"}
+_VOTE_RISING_PREFIX = ("OBV_", "OBVE_", "PVI_", "NVI_")
+# Paired indicators: bullish when the first line is above the second.
+_VOTE_PAIRS = (
+    ("DMP_", "DMN_"),          # +DI vs -DI
+    ("PLUS_DM", "MINUS_DM"),   # raw directional movement
+    ("AROONU_", "AROOND_"),    # Aroon up vs down
+    ("VTXP_", "VTXM_"),        # Vortex + vs -
+    ("CKSPL_", "CKSPS_"),      # Chande-Kroll long vs short stop
+)
+# Paired stops where only one leg is live at a time: whichever is non-NaN wins.
+_VOTE_ACTIVE_PAIRS = (("PSARL_", "PSARS_"),)
 # Categories whose output is magnitude/shape, not direction -- computed, never voted.
 _NON_DIRECTIONAL_CATS = {"volatility", "statistics", "cycles", "performance"}
 
 
 def _vote_column(name: str, series: pd.Series, close_last: float, category: str):
     """Read one indicator column as True (bullish), False (bearish) or None."""
+    up = name.upper()
+    if any(up.startswith(p) for p in _VOTE_NEVER):
+        return None
+
     s = series.dropna()
     if s.empty:
         return None
     val = float(s.iloc[-1])
     if not np.isfinite(val):
         return None
-    up = name.upper()
 
     if up.startswith("CDL_"):                 # candlestick pattern: sign = direction
         return None if val == 0 else bool(val > 0)
     if up.startswith("SUPERTD"):              # supertrend direction: 1 / -1
         return bool(val > 0)
-    if up.startswith("PSARL"):                # long stop active -> uptrend
-        return True
-    if up.startswith("PSARS"):                # short stop active -> downtrend
-        return False
+    if any(up.startswith(p) for p in _VOTE_LONG_RUN):
+        return bool(val > 0)
+    if any(up.startswith(p) for p in _VOTE_SHORT_RUN):
+        return bool(val <= 0)
     if any(up.startswith(p) for p in _VOTE_GT_NEG50):
         return bool(val > -50)
     if any(up.startswith(p) for p in _VOTE_GT50):
@@ -484,14 +511,53 @@ def _vote_column(name: str, series: pd.Series, close_last: float, category: str)
         return bool(val <= 0)
     if any(up.startswith(p) for p in _VOTE_GT0):
         return bool(val > 0)
-    if any(up.startswith(p) for p in _VOTE_RISING):
+    if up in _VOTE_RISING_EXACT or any(up.startswith(p) for p in _VOTE_RISING_PREFIX):
         return bool(s.iloc[-1] > s.iloc[-6]) if len(s) > 6 else None
+    if up == "CPR_PIVOT":                     # trading above the pivot is bullish
+        return bool(close_last > val)
     if category == "overlap":
         # Price-level moving averages: trading above the line is bullish.
         # The range guard skips overlap outputs that aren't price levels.
         if 0.2 * close_last <= val <= 5 * close_last:
             return bool(close_last > val)
     return None
+
+
+def _pair_votes(enriched: pd.DataFrame, cols: list):
+    """Directional votes that need two columns compared against each other.
+
+    Returns (votes, consumed) so the single-column pass can skip these columns
+    instead of double-counting them -- or, in PSAR's case, reading them wrongly:
+    only one of its two stop lines is live at a time, so voting on each
+    separately always produced one bull and one bear that cancelled out.
+    """
+    votes: list[bool] = []
+    consumed: set = set()
+    by_upper = {c.upper(): c for c in cols}
+
+    def _find(prefix):
+        return next((by_upper[u] for u in sorted(by_upper) if u.startswith(prefix)), None)
+
+    for bull_prefix, bear_prefix in _VOTE_PAIRS:
+        bull_col, bear_col = _find(bull_prefix), _find(bear_prefix)
+        if not (bull_col and bear_col):
+            continue
+        a, b = enriched[bull_col].dropna(), enriched[bear_col].dropna()
+        consumed.update((bull_col, bear_col))
+        if len(a) and len(b):
+            votes.append(bool(float(a.iloc[-1]) > float(b.iloc[-1])))
+
+    for bull_prefix, bear_prefix in _VOTE_ACTIVE_PAIRS:
+        bull_col, bear_col = _find(bull_prefix), _find(bear_prefix)
+        if not (bull_col and bear_col):
+            continue
+        consumed.update((bull_col, bear_col))
+        bull_live = bool(pd.notna(enriched[bull_col].iloc[-1]))
+        bear_live = bool(pd.notna(enriched[bear_col].iloc[-1]))
+        if bull_live != bear_live:
+            votes.append(bull_live)
+
+    return votes, consumed
 
 
 def _compute_by_category(df: pd.DataFrame, exclude: set | None = None):
@@ -563,8 +629,12 @@ def confluence_signals(df: pd.DataFrame, min_votes: int = 3) -> dict:
     for category, cols in mapping.items():
         if category in _NON_DIRECTIONAL_CATS:
             continue
-        bulls = bears = 0
+        pair_results, consumed = _pair_votes(enriched, cols)
+        bulls = sum(1 for v in pair_results if v)
+        bears = sum(1 for v in pair_results if not v)
         for col in cols:
+            if col in consumed:
+                continue
             verdict = _vote_column(col, enriched[col], close_last, category)
             if verdict is True:
                 bulls += 1
