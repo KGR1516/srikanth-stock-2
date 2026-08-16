@@ -86,6 +86,7 @@ def generate_report(df: pd.DataFrame, out_dir: Path | None = None) -> Path:
         "true_rank", "symbol", "close", "breakout_level", "pct_above", "rsi",
         "volume_x", "turnover_cr", "adx", "macd_hist",
         "bb_percent", "atr_pct", "stoch_k", "vwap_dist_pct", "supertrend_dir",
+        "confluence_score", "conf_trend", "conf_momentum", "conf_overlap", "conf_volume",
         "rel_strength", "follow_through",
         "setup_type", "live_status", "final_score", "action", "position_size",
         "sector", "market_cap", "pe_ratio", "roe", "debt_to_equity", "earnings_growth",
