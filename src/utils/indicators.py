@@ -367,6 +367,15 @@ def supertrend(
     return trend, direction
 
 
+# Same default exclusions pandas-ta-classic's own strategy("all") applies:
+# these need extra non-OHLCV inputs and can't run standalone off a plain
+# price/volume frame.
+_DEFAULT_BULK_EXCLUDE = {
+    "above", "above_value", "below", "below_value", "cross", "cross_value",
+    "long_run", "short_run", "td_seq", "tsignals", "vp", "xsignals",
+}
+
+
 # ------------------------------------------------------ All indicators (bulk)
 def compute_all_indicators(df: pd.DataFrame, exclude: list[str] | None = None):
     """Compute every indicator pandas-ta-classic ships (224 category
@@ -405,14 +414,7 @@ def compute_all_indicators(df: pd.DataFrame, exclude: list[str] | None = None):
             "Install it with `pip install pandas-ta-classic` (see requirements.txt)."
         )
 
-    # Same default exclusions pandas-ta-classic's own strategy("all") applies:
-    # these need extra non-OHLCV inputs and can't run standalone off a
-    # plain price/volume frame.
-    default_exclude = {
-        "above", "above_value", "below", "below_value", "cross", "cross_value",
-        "long_run", "short_run", "td_seq", "tsignals", "vp", "xsignals",
-    }
-    skip = default_exclude | set(exclude or [])
+    skip = _DEFAULT_BULK_EXCLUDE | set(exclude or [])
 
     out = df.copy()
     names = out.ta.indicators(as_list=True)
@@ -432,3 +434,154 @@ def compute_all_indicators(df: pd.DataFrame, exclude: list[str] | None = None):
         f"{len(skipped)} skipped, {out.shape[1] - df.shape[1]} columns added"
     )
     return out
+
+# ------------------------------------------------- Multi-indicator confluence
+# How each indicator family is read as bullish / bearish. Only indicators with
+# an unambiguous directional meaning vote. Magnitude-only ones (ADX strength,
+# choppiness, volatility width, cycle phase, statistics) are still computed and
+# available as columns -- they just don't cast a direction vote, because a wrong
+# vote is worse than no vote.
+_VOTE_GT0 = (            # bullish when > 0
+    "MACD", "MOM_", "ROC_", "TRIX", "PPO", "APO_", "AO_", "BOP", "CCI_",
+    "CMO_", "BIAS_", "CFO_", "FISHERT", "KST", "PGO_", "RVGI", "SLOPE",
+    "SMI_", "TSI_", "COPC", "DPO_", "CTI_", "CMF_", "EFI_", "KVO_", "ADOSC",
+    "EOM_", "EMV_", "TTM_TRND", "AROONOSC", "INC_", "AMATE_LR", "QQEL",
+)
+_VOTE_GT50 = (           # bullish when > 50 (0-100 scales on a bull/bear axis)
+    "RSI_", "RSX_", "STOCHK", "STOCHD", "STOCHRSIK", "STOCHRSID", "MFI_",
+    "INERTIA", "PSL_", "STC_", "UO_", "CRSI", "QQE_",
+)
+_VOTE_GT_NEG50 = ("WILLR",)                       # bullish when > -50
+_VOTE_BEARISH_GT0 = ("DEC_", "AMATE_SR", "QQES")  # bullish when <= 0
+_VOTE_RISING = ("OBV", "AD", "PVT", "PVI_", "NVI_", "AOBV")  # rising = accumulation
+# Categories whose output is magnitude/shape, not direction -- computed, never voted.
+_NON_DIRECTIONAL_CATS = {"volatility", "statistics", "cycles", "performance"}
+
+
+def _vote_column(name: str, series: pd.Series, close_last: float, category: str):
+    """Read one indicator column as True (bullish), False (bearish) or None."""
+    s = series.dropna()
+    if s.empty:
+        return None
+    val = float(s.iloc[-1])
+    if not np.isfinite(val):
+        return None
+    up = name.upper()
+
+    if up.startswith("CDL_"):                 # candlestick pattern: sign = direction
+        return None if val == 0 else bool(val > 0)
+    if up.startswith("SUPERTD"):              # supertrend direction: 1 / -1
+        return bool(val > 0)
+    if up.startswith("PSARL"):                # long stop active -> uptrend
+        return True
+    if up.startswith("PSARS"):                # short stop active -> downtrend
+        return False
+    if any(up.startswith(p) for p in _VOTE_GT_NEG50):
+        return bool(val > -50)
+    if any(up.startswith(p) for p in _VOTE_GT50):
+        return bool(val > 50)
+    if any(up.startswith(p) for p in _VOTE_BEARISH_GT0):
+        return bool(val <= 0)
+    if any(up.startswith(p) for p in _VOTE_GT0):
+        return bool(val > 0)
+    if any(up.startswith(p) for p in _VOTE_RISING):
+        return bool(s.iloc[-1] > s.iloc[-6]) if len(s) > 6 else None
+    if category == "overlap":
+        # Price-level moving averages: trading above the line is bullish.
+        # The range guard skips overlap outputs that aren't price levels.
+        if 0.2 * close_last <= val <= 5 * close_last:
+            return bool(close_last > val)
+    return None
+
+
+def _compute_by_category(df: pd.DataFrame, exclude: set | None = None):
+    """Run every indicator, tracking which category each new column came from.
+
+    Returns (enriched_df, {category: [column names]}).
+    """
+    skip = _DEFAULT_BULK_EXCLUDE | set(exclude or [])
+    out = df.copy()
+    mapping: dict[str, list[str]] = {}
+    for category, names in _pta.Category.items():
+        cols: list[str] = []
+        for name in names:
+            if name in skip:
+                continue
+            before = set(out.columns)
+            try:
+                getattr(out.ta, name)(append=True)
+            except Exception as exc:
+                log.debug(f"confluence: skipped '{name}' ({exc})")
+                continue
+            cols.extend([c for c in out.columns if c not in before])
+        if cols:
+            mapping[category] = cols
+    return out, mapping
+
+
+def confluence_signals(df: pd.DataFrame, min_votes: int = 3) -> dict:
+    """Compute every pandas-ta-classic indicator and reduce them to a single
+    directional consensus for the latest bar.
+
+    Rather than treating the 224-indicator catalogue as inert extra columns,
+    this reads each indicator that has an unambiguous bullish/bearish meaning
+    as one vote, then aggregates.
+
+    Votes are pooled *within* each category first and the categories are then
+    averaged equally. That matters: pandas-ta-classic ships ~46 overlap
+    (moving-average) indicators but only ~20 volume ones, so a naive count
+    across all columns would quietly turn into "whatever the moving averages
+    think". Equal-weighting the categories keeps trend, momentum, volume and
+    price-vs-average as four independent opinions.
+
+    Args:
+        df: OHLCV DataFrame. Column names may be upper or lower case.
+        min_votes: a category needs at least this many usable votes to count.
+
+    Returns:
+        dict with confluence_score (0-100, higher = more bullish agreement),
+        the per-category bull percentages, and how many indicator columns were
+        computed. Values are None when there isn't enough data to judge.
+    """
+    if _pta is None:
+        raise RuntimeError(
+            "confluence_signals() requires pandas-ta-classic. "
+            "Install it with `pip install pandas-ta-classic` (see requirements.txt)."
+        )
+
+    frame = df.rename(columns=str.lower)
+    needed = {"open", "high", "low", "close", "volume"}
+    missing = needed - set(frame.columns)
+    if missing:
+        raise ValueError(f"confluence_signals() needs OHLCV columns, missing: {sorted(missing)}")
+    frame = frame[["open", "high", "low", "close", "volume"]]
+
+    enriched, mapping = _compute_by_category(frame)
+    close_last = float(frame["close"].iloc[-1])
+
+    per_category: dict[str, float] = {}
+    for category, cols in mapping.items():
+        if category in _NON_DIRECTIONAL_CATS:
+            continue
+        bulls = bears = 0
+        for col in cols:
+            verdict = _vote_column(col, enriched[col], close_last, category)
+            if verdict is True:
+                bulls += 1
+            elif verdict is False:
+                bears += 1
+        if bulls + bears >= min_votes:
+            per_category[category] = round(bulls / (bulls + bears) * 100, 1)
+
+    total_cols = sum(len(v) for v in mapping.values())
+    score = round(float(np.mean(list(per_category.values()))), 1) if per_category else None
+    log.debug(f"confluence: {total_cols} columns, score={score}, per-category={per_category}")
+
+    return {
+        "confluence_score": score,
+        "conf_trend": per_category.get("trend"),
+        "conf_momentum": per_category.get("momentum"),
+        "conf_overlap": per_category.get("overlap"),
+        "conf_volume": per_category.get("volume"),
+        "indicators_computed": total_cols,
+    }
