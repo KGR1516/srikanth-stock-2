@@ -229,6 +229,31 @@ def _fetch_one(symbol: str) -> dict | None:
     )
     adx14 = indicators.adx(df["High"], df["Low"], close, settings.ADX_PERIOD)
 
+    # Additional indicators (volatility / momentum / trend context) — informational
+    # columns only, not wired into scoring or breakout classification.
+    upper_bb, _mid_bb, lower_bb = indicators.bbands(close, settings.BBANDS_PERIOD, settings.BBANDS_STD)
+    bb_width = float(upper_bb.iloc[-1] - lower_bb.iloc[-1])
+    bb_percent = round(float((last - lower_bb.iloc[-1]) / bb_width), 3) if bb_width > 0 else None
+
+    atr14 = indicators.atr(df["High"], df["Low"], close, settings.ATR_PERIOD)
+    atr_pct = (
+        round(float(atr14.iloc[-1] / last * 100), 2)
+        if last and pd.notna(atr14.iloc[-1]) else None
+    )
+
+    stoch_k, _stoch_d = indicators.stochastic(df["High"], df["Low"], close)
+    stoch_k_val = round(float(stoch_k.iloc[-1]), 1) if pd.notna(stoch_k.iloc[-1]) else None
+
+    vwap_series = indicators.vwap(df["High"], df["Low"], close, df["Volume"])
+    vwap_val = float(vwap_series.iloc[-1]) if pd.notna(vwap_series.iloc[-1]) else None
+    vwap_dist_pct = round((last - vwap_val) / vwap_val * 100, 2) if vwap_val else None
+
+    _, st_dir_series = indicators.supertrend(
+        df["High"], df["Low"], close, settings.SUPERTREND_PERIOD, settings.SUPERTREND_MULTIPLIER
+    )
+    st_dir_val = st_dir_series.iloc[-1]
+    supertrend_dir = ("Up" if st_dir_val > 0 else "Down") if pd.notna(st_dir_val) else None
+
     # breakout level = highest close over the lookback window, excluding today
     lookback = df.iloc[-(settings.BREAKOUT_LOOKBACK + 1):-1]
     if lookback.empty:
@@ -260,6 +285,11 @@ def _fetch_one(symbol: str) -> dict | None:
         "ema200": round(float(ema200.iloc[-1]), 2) if pd.notna(ema200.iloc[-1]) else round(float(ema50.iloc[-1]), 2),
         "macd_hist": round(float(macd_hist.iloc[-1]), 3),
         "adx": round(float(adx14.iloc[-1]), 1),
+        "bb_percent": bb_percent,
+        "atr_pct": atr_pct,
+        "stoch_k": stoch_k_val,
+        "vwap_dist_pct": vwap_dist_pct,
+        "supertrend_dir": supertrend_dir,
         "fetched_at": datetime.now().isoformat(timespec="seconds"),
         "rel_strength": rel_strength,
     }
