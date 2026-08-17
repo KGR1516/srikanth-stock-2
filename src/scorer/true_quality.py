@@ -1,8 +1,11 @@
 """True Quality scoring — multi-factor 0-100 score with penalties.
 
-Dimensions & max weights (from README):
-  entry_checks 25 | rsi_health 20 | proximity 20 | liquidity 15
-  live_status 15  | volume 5      | catalyst 5
+Dimensions & max weights live in settings.WEIGHTS (they sum to 100):
+  entry_checks 17 | momentum 13 | confluence 15 | trend_alignment 9
+  liquidity 9     | relative_strength 9 | rsi_health 8 | proximity 8
+  live_status 8   | volume 4
+`confluence` is the consensus across the full pandas-ta-classic catalogue
+(see indicators.confluence_signals).
 Penalties: loss-making -8, failed breakout -15.
 """
 from __future__ import annotations
@@ -89,6 +92,21 @@ def _volume(row: pd.Series) -> float:
     return frac * settings.WEIGHTS["volume"]
 
 
+def _confluence(row: pd.Series) -> float:
+    """Consensus across the full pandas-ta-classic indicator catalogue.
+
+    `confluence_score` is the share of directional indicators reading bullish
+    (0-100), so it maps straight onto the weight. When it is unavailable --
+    USE_ALL_INDICATORS off, or too little history for the indicators to settle
+    -- the stock is scored neutral on this dimension rather than being pushed
+    to the bottom of the ranking for a data gap it isn't responsible for.
+    """
+    value = row.get("confluence_score")
+    if value is None or pd.isna(value):
+        return 0.5 * settings.WEIGHTS["confluence"]
+    return _scale(float(value), 0, 100) * settings.WEIGHTS["confluence"]
+
+
 def score_row(row: pd.Series) -> dict:
     components = {
         "entry_checks": round(_entry_checks(row), 1),
@@ -100,6 +118,7 @@ def score_row(row: pd.Series) -> dict:
         "live_score": round(_live(row), 1),
         "volume": round(_volume(row), 1),
         "relative_strength": round(_relative_strength(row), 1),
+        "confluence": round(_confluence(row), 1),
     }
     raw = sum(components.values())
 
@@ -119,7 +138,7 @@ def score(df: pd.DataFrame) -> pd.DataFrame:
     """Add component columns, final_score, action, position_size, and rank."""
     empty_cols = [
         "entry_checks", "trend_alignment", "momentum", "rsi_health", "proximity",
-        "liquidity", "live_score", "volume", "relative_strength", "penalty",
+        "liquidity", "live_score", "volume", "relative_strength", "confluence", "penalty",
         "final_score", "action", "position_size", "true_rank", "fundamental_bonus",
     ]
     if df.empty:

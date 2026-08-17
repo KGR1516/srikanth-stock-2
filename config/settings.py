@@ -48,22 +48,43 @@ ADX_PERIOD = _i("ADX_PERIOD", 14)
 MIN_ADX = _f("MIN_ADX", 20)
 RS_LOOKBACK = _i("RS_LOOKBACK", 20)  # trading days for return comparison vs Nifty
 
+# ---------------------------------------------------------------- Additional indicators
+# Informational-only columns (bb_percent, atr_pct, stoch_k, vwap_dist_pct,
+# supertrend_dir) computed in nse_fetcher — not wired into scoring/breakout
+# classification, so changing these doesn't affect action/score output.
+BBANDS_PERIOD = _i("BBANDS_PERIOD", 20)
+BBANDS_STD = _f("BBANDS_STD", 2.0)
+ATR_PERIOD = _i("ATR_PERIOD", 14)
+SUPERTREND_PERIOD = _i("SUPERTREND_PERIOD", 10)
+SUPERTREND_MULTIPLIER = _f("SUPERTREND_MULTIPLIER", 3.0)
+
+# ------------------------------------------------------- Full indicator catalogue
+# Compute every pandas-ta-classic indicator per symbol and fold the resulting
+# directional consensus into the score (see indicators.confluence_signals).
+# Costs roughly 0.7s of CPU per symbol; set to 0 to fall back to the individual
+# indicators only, in which case the confluence weight is redistributed.
+USE_ALL_INDICATORS = _i("USE_ALL_INDICATORS", 1) == 1
+
 # ---------------------------------------------------------------- Risk
 STOP_PCT = _f("STOP_PCT", 0.015)
 R_R_T1 = _f("R_R_T1", 2.0)
 R_R_T2 = _f("R_R_T2", 3.5)
 
 # ---------------------------------------------------------------- Scoring weights (sum = 100)
+# Scoring weights, summing to 100. When the full-catalogue confluence signal was
+# added, the nine original weights were scaled down proportionally (x0.85) to
+# make room for it, so their balance relative to each other is unchanged.
 WEIGHTS = {
-    "entry_checks": 20,
-    "trend_alignment": 10,
-    "momentum": 15,
-    "rsi_health": 10,
-    "proximity": 10,
-    "liquidity": 10,
-    "live_status": 10,
-    "volume": 5,
-    "relative_strength": 10,
+    "entry_checks": 17,
+    "trend_alignment": 9,
+    "momentum": 13,
+    "rsi_health": 8,
+    "proximity": 8,
+    "liquidity": 9,
+    "live_status": 8,
+    "volume": 4,
+    "relative_strength": 9,
+    "confluence": 15,
 }
 
 PENALTY_LOSS_MAKING = -8
