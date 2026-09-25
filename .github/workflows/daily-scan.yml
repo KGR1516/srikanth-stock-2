@@ -7,6 +7,9 @@ on:
     - cron: '30 10 * * 1-5'  # 16:00 IST weekdays - Post-Close
   workflow_dispatch: {}
 
+permissions:
+  contents: read
+
 jobs:
   run-scanner:
     runs-on: ubuntu-latest
@@ -30,6 +33,7 @@ jobs:
         with:
           name: breakout-report
           path: data/output/*.xlsx
+          retention-days: 7
 
       - name: Email results
         env:

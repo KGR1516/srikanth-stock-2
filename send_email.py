@@ -13,6 +13,7 @@ import argparse
 import glob
 import os
 import smtplib
+import ssl
 from email.message import EmailMessage
 from pathlib import Path
 
@@ -94,8 +95,11 @@ def main():
     attachment = find_latest_report(args.pattern)
     msg = build_message(sender, recipient, attachment)
 
-    with smtplib.SMTP("smtp.gmail.com", 587) as server:
-        server.starttls()
+    # Without an explicit context, starttls() does not verify the server
+    # certificate, so the app password could be captured by a MITM.
+    context = ssl.create_default_context()
+    with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as server:
+        server.starttls(context=context)
         server.login(sender, password)
         server.send_message(msg)
 

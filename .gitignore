@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+
+# Secrets - never commit
+.env
+
+# Generated output
+data/output/*.xlsx
+logs/
