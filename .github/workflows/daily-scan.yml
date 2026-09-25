@@ -3,8 +3,8 @@ name: Daily Breakout Scanner
 on:
   schedule:
     # GitHub cron runs in UTC; IST = UTC + 5:30
-    - cron: '30 5 * * 1-5'   # 11:00 IST weekdays
-    - cron: '30 9 * * 1-5'   # 15:00 IST weekdays
+    - cron: '30 5 * * 1-5'   # 11:00 AM IST weekdays
+    - cron: '15 9 * * 1-5'   # 2:45 PM IST weekdays
   workflow_dispatch: {}
 
 permissions:
